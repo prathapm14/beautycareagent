@@ -1,8 +1,8 @@
-# Word Chain Game - Replit Configuration
+# AI-Powered Skincare App - Replit Configuration
 
 ## Overview
 
-This is a real-time multiplayer word chain game built with React frontend and Express backend. Players join rooms and take turns adding words that connect to form a chain, creating an engaging collaborative word game experience.
+This is a mobile-first AI-powered skincare application that delivers personalized routines through intuitive user input (text, voice, images). The app prioritizes simplicity, personalization, and accessibility for users seeking customized skincare guidance.
 
 ## System Architecture
 

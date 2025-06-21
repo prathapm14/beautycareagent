@@ -1,131 +1,145 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const gameRooms = pgTable("game_rooms", {
+// User profiles for skincare app
+export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  code: text("code").notNull().unique(),
-  currentWord: text("current_word"),
-  wordChain: text("word_chain").array().default([]),
-  currentPlayerIndex: integer("current_player_index").default(0),
+  email: text("email").unique(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Skin analysis data
+export const skinAnalyses = pgTable("skin_analyses", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  skinType: text("skin_type").notNull(), // oily, dry, combination, sensitive
+  concerns: text("concerns").array().notNull(), // acne, dark_spots, wrinkles, dullness, redness
+  allergies: text("allergies").array().default([]),
+  imageUrl: text("image_url"),
+  aiDiagnosis: jsonb("ai_diagnosis"), // AI analysis results
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Personalized routines
+export const routines = pgTable("routines", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  analysisId: integer("analysis_id").references(() => skinAnalyses.id).notNull(),
+  routineType: text("routine_type").notNull(), // morning, evening
+  products: jsonb("products").notNull(), // Array of product recommendations
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Chat messages with AI advisor
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  message: text("message").notNull(),
+  isUserMessage: boolean("is_user_message").notNull(),
+  imageUrl: text("image_url"),
+  timestamp: timestamp("timestamp").defaultNow(),
+});
+
+// Skin diary entries
+export const diaryEntries = pgTable("diary_entries", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  photoUrl: text("photo_url"),
+  mood: text("mood"), // good, neutral, bad
+  condition: text("condition"), // clear, breakout, dry, oily
+  notes: text("notes"),
+  date: timestamp("date").defaultNow(),
+});
+
+// User reminders
+export const reminders = pgTable("reminders", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  title: text("title").notNull(),
+  frequency: text("frequency").notNull(), // daily, every_2h, weekly
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const players = pgTable("players", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  roomId: integer("room_id").references(() => gameRooms.id),
-  isReady: boolean("is_ready").default(false),
-  isHost: boolean("is_host").default(false),
-  joinedAt: timestamp("joined_at").defaultNow(),
+// Insert schemas
+export const insertUserSchema = createInsertSchema(users).pick({
+  email: true,
+  name: true,
 });
 
-export const insertGameRoomSchema = createInsertSchema(gameRooms).pick({
-  code: true,
-  currentWord: true,
-  wordChain: true,
-  currentPlayerIndex: true,
+export const insertSkinAnalysisSchema = createInsertSchema(skinAnalyses).pick({
+  userId: true,
+  skinType: true,
+  concerns: true,
+  allergies: true,
+  imageUrl: true,
+  aiDiagnosis: true,
+});
+
+export const insertRoutineSchema = createInsertSchema(routines).pick({
+  userId: true,
+  analysisId: true,
+  routineType: true,
+  products: true,
+});
+
+export const insertChatMessageSchema = createInsertSchema(chatMessages).pick({
+  userId: true,
+  message: true,
+  isUserMessage: true,
+  imageUrl: true,
+});
+
+export const insertDiaryEntrySchema = createInsertSchema(diaryEntries).pick({
+  userId: true,
+  photoUrl: true,
+  mood: true,
+  condition: true,
+  notes: true,
+});
+
+export const insertReminderSchema = createInsertSchema(reminders).pick({
+  userId: true,
+  title: true,
+  frequency: true,
   isActive: true,
 });
 
-export const insertPlayerSchema = createInsertSchema(players).pick({
-  name: true,
-  roomId: true,
-  isReady: true,
-  isHost: true,
+// Types
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type SkinAnalysis = typeof skinAnalyses.$inferSelect;
+export type InsertSkinAnalysis = z.infer<typeof insertSkinAnalysisSchema>;
+export type Routine = typeof routines.$inferSelect;
+export type InsertRoutine = z.infer<typeof insertRoutineSchema>;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
+export type DiaryEntry = typeof diaryEntries.$inferSelect;
+export type InsertDiaryEntry = z.infer<typeof insertDiaryEntrySchema>;
+export type Reminder = typeof reminders.$inferSelect;
+export type InsertReminder = z.infer<typeof insertReminderSchema>;
+
+// Onboarding form schema
+export const onboardingSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Please enter a valid email"),
+  skinType: z.enum(["oily", "dry", "combination", "sensitive"]),
+  concerns: z.array(z.enum(["acne", "dark_spots", "wrinkles", "dullness", "redness"])).min(1, "Select at least one concern"),
+  allergies: z.array(z.string()).default([]),
 });
 
-export type InsertGameRoom = z.infer<typeof insertGameRoomSchema>;
-export type GameRoom = typeof gameRooms.$inferSelect;
-export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
-export type Player = typeof players.$inferSelect;
+export type OnboardingData = z.infer<typeof onboardingSchema>;
 
-// WebSocket message types
-export const wsMessageSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("join_room"),
-    roomCode: z.string(),
-    playerName: z.string(),
-  }),
-  z.object({
-    type: z.literal("create_room"),
-    playerName: z.string(),
-  }),
-  z.object({
-    type: z.literal("submit_word"),
-    word: z.string(),
-    roomId: z.number(),
-    playerId: z.number(),
-  }),
-  z.object({
-    type: z.literal("skip_turn"),
-    roomId: z.number(),
-    playerId: z.number(),
-  }),
-  z.object({
-    type: z.literal("leave_room"),
-    roomId: z.number(),
-    playerId: z.number(),
-  }),
-]);
+// AI diagnosis response
+export const aiDiagnosisSchema = z.object({
+  severity: z.enum(["mild", "moderate", "severe"]),
+  primaryConcerns: z.array(z.string()),
+  recommendations: z.array(z.string()),
+  confidence: z.number().min(0).max(1),
+});
 
-export type WSMessage = z.infer<typeof wsMessageSchema>;
-
-export const wsResponseSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("room_created"),
-    room: z.object({
-      id: z.number(),
-      code: z.string(),
-    }),
-    player: z.object({
-      id: z.number(),
-      name: z.string(),
-      isHost: z.boolean(),
-    }),
-  }),
-  z.object({
-    type: z.literal("room_joined"),
-    room: z.object({
-      id: z.number(),
-      code: z.string(),
-      currentWord: z.string().nullable(),
-      wordChain: z.array(z.string()),
-      currentPlayerIndex: z.number(),
-    }),
-    player: z.object({
-      id: z.number(),
-      name: z.string(),
-      isHost: z.boolean(),
-    }),
-    players: z.array(z.object({
-      id: z.number(),
-      name: z.string(),
-      isReady: z.boolean(),
-      isHost: z.boolean(),
-    })),
-  }),
-  z.object({
-    type: z.literal("game_state_updated"),
-    room: z.object({
-      id: z.number(),
-      code: z.string(),
-      currentWord: z.string().nullable(),
-      wordChain: z.array(z.string()),
-      currentPlayerIndex: z.number(),
-    }),
-    players: z.array(z.object({
-      id: z.number(),
-      name: z.string(),
-      isReady: z.boolean(),
-      isHost: z.boolean(),
-    })),
-  }),
-  z.object({
-    type: z.literal("error"),
-    message: z.string(),
-  }),
-]);
-
-export type WSResponse = z.infer<typeof wsResponseSchema>;
+export type AIDiagnosis = z.infer<typeof aiDiagnosisSchema>;

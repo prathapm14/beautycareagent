@@ -1,345 +1,253 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { wsMessageSchema, type WSMessage, type WSResponse } from "@shared/schema";
-
-interface ExtendedWebSocket extends WebSocket {
-  playerId?: number;
-  roomId?: number;
-}
+import { onboardingSchema, type OnboardingData, type AIDiagnosis } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  const httpServer = createServer(app);
+  // API Routes for skincare app
   
-  // WebSocket server for real-time multiplayer functionality
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
-  
-  const clients: Map<number, ExtendedWebSocket> = new Map();
+  // User onboarding and skin analysis
+  app.post('/api/onboard', async (req, res) => {
+    try {
+      const data = onboardingSchema.parse(req.body);
+      
+      // Create user
+      const user = await storage.createUser({
+        name: data.name,
+        email: data.email,
+      });
 
-  function broadcast(roomId: number, message: WSResponse) {
-    const roomClients = Array.from(clients.values()).filter(client => 
-      client.roomId === roomId && client.readyState === WebSocket.OPEN
-    );
-    
-    roomClients.forEach(client => {
-      client.send(JSON.stringify(message));
-    });
-  }
+      // Create skin analysis
+      const analysis = await storage.createSkinAnalysis({
+        userId: user.id,
+        skinType: data.skinType,
+        concerns: data.concerns,
+        allergies: data.allergies,
+      });
 
-  function sendToClient(playerId: number, message: WSResponse) {
-    const client = clients.get(playerId);
-    if (client && client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(message));
+      // Generate AI diagnosis (mock for now)
+      const aiDiagnosis: AIDiagnosis = {
+        severity: data.concerns.includes('acne') ? 'moderate' : 'mild',
+        primaryConcerns: data.concerns,
+        recommendations: [
+          'Use gentle cleanser twice daily',
+          'Apply moisturizer after cleansing',
+          'Use sunscreen during the day'
+        ],
+        confidence: 0.85
+      };
+
+      // Update analysis with AI diagnosis
+      await storage.createSkinAnalysis({
+        userId: user.id,
+        skinType: data.skinType,
+        concerns: data.concerns,
+        allergies: data.allergies,
+        aiDiagnosis
+      });
+
+      res.json({ user, analysis: { ...analysis, aiDiagnosis } });
+    } catch (error) {
+      console.error('Onboarding error:', error);
+      res.status(400).json({ error: 'Invalid onboarding data' });
     }
-  }
-
-  wss.on('connection', (ws: ExtendedWebSocket) => {
-    console.log('New WebSocket connection');
-
-    ws.on('message', async (data) => {
-      try {
-        const rawMessage = JSON.parse(data.toString());
-        const message = wsMessageSchema.parse(rawMessage);
-
-        switch (message.type) {
-          case 'create_room': {
-            try {
-              // Generate unique room code
-              let roomCode: string;
-              let existingRoom;
-              do {
-                roomCode = (storage as any).generateRoomCode();
-                existingRoom = await storage.getGameRoomByCode(roomCode);
-              } while (existingRoom);
-
-              // Create room
-              const room = await storage.createGameRoom({
-                code: roomCode,
-                currentWord: null,
-                wordChain: [],
-                currentPlayerIndex: 0,
-                isActive: true,
-              });
-
-              // Create host player
-              const player = await storage.createPlayer({
-                name: message.playerName,
-                roomId: room.id,
-                isReady: true,
-                isHost: true,
-              });
-
-              ws.playerId = player.id;
-              ws.roomId = room.id;
-              clients.set(player.id, ws);
-
-              const response: WSResponse = {
-                type: 'room_created',
-                room: {
-                  id: room.id,
-                  code: room.code,
-                },
-                player: {
-                  id: player.id,
-                  name: player.name,
-                  isHost: player.isHost || false,
-                },
-              };
-
-              sendToClient(player.id, response);
-            } catch (error) {
-              sendToClient(-1, { type: 'error', message: 'Failed to create room' });
-            }
-            break;
-          }
-
-          case 'join_room': {
-            try {
-              const room = await storage.getGameRoomByCode(message.roomCode);
-              if (!room) {
-                ws.send(JSON.stringify({ type: 'error', message: 'Room not found' }));
-                break;
-              }
-
-              // Check if room is full (max 6 players)
-              const existingPlayers = await storage.getPlayersByRoomId(room.id);
-              if (existingPlayers.length >= 6) {
-                ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
-                break;
-              }
-
-              // Create player
-              const player = await storage.createPlayer({
-                name: message.playerName,
-                roomId: room.id,
-                isReady: true,
-                isHost: false,
-              });
-
-              ws.playerId = player.id;
-              ws.roomId = room.id;
-              clients.set(player.id, ws);
-
-              // Get all players in room
-              const allPlayers = await storage.getPlayersByRoomId(room.id);
-
-              const response: WSResponse = {
-                type: 'room_joined',
-                room: {
-                  id: room.id,
-                  code: room.code,
-                  currentWord: room.currentWord,
-                  wordChain: room.wordChain || [],
-                  currentPlayerIndex: room.currentPlayerIndex || 0,
-                },
-                player: {
-                  id: player.id,
-                  name: player.name,
-                  isHost: player.isHost || false,
-                },
-                players: allPlayers.map(p => ({
-                  id: p.id,
-                  name: p.name,
-                  isReady: p.isReady || false,
-                  isHost: p.isHost || false,
-                })),
-              };
-
-              sendToClient(player.id, response);
-
-              // Broadcast updated player list to all players in room
-              const updateMessage: WSResponse = {
-                type: 'game_state_updated',
-                room: {
-                  id: room.id,
-                  code: room.code,
-                  currentWord: room.currentWord,
-                  wordChain: room.wordChain || [],
-                  currentPlayerIndex: room.currentPlayerIndex || 0,
-                },
-                players: allPlayers.map(p => ({
-                  id: p.id,
-                  name: p.name,
-                  isReady: p.isReady || false,
-                  isHost: p.isHost || false,
-                })),
-              };
-
-              broadcast(room.id, updateMessage);
-            } catch (error) {
-              ws.send(JSON.stringify({ type: 'error', message: 'Failed to join room' }));
-            }
-            break;
-          }
-
-          case 'submit_word': {
-            try {
-              const room = await storage.getGameRoom(message.roomId);
-              const player = await storage.getPlayer(message.playerId);
-              
-              if (!room || !player) {
-                sendToClient(message.playerId, { type: 'error', message: 'Room or player not found' });
-                break;
-              }
-
-              const players = await storage.getPlayersByRoomId(room.id);
-              const currentPlayer = players[room.currentPlayerIndex ?? 0];
-
-              // Check if it's the player's turn
-              if (currentPlayer.id !== message.playerId) {
-                sendToClient(message.playerId, { type: 'error', message: 'Not your turn' });
-                break;
-              }
-
-              // Simple word validation
-              const word = message.word.trim().toUpperCase();
-              if (word.length < 2 || !/^[A-Z]+$/.test(word)) {
-                sendToClient(message.playerId, { type: 'error', message: 'Please enter a valid word (letters only, at least 2 characters)' });
-                break;
-              }
-
-              // Update game state
-              const newWordChain = [...(room.wordChain || []), word];
-              const nextPlayerIndex = ((room.currentPlayerIndex ?? 0) + 1) % players.length;
-
-              await storage.updateGameRoom(room.id, {
-                currentWord: word,
-                wordChain: newWordChain,
-                currentPlayerIndex: nextPlayerIndex,
-              });
-
-              // Broadcast updated game state
-              const updateMessage: WSResponse = {
-                type: 'game_state_updated',
-                room: {
-                  id: room.id,
-                  code: room.code,
-                  currentWord: word,
-                  wordChain: newWordChain,
-                  currentPlayerIndex: nextPlayerIndex,
-                },
-                players: players.map(p => ({
-                  id: p.id,
-                  name: p.name,
-                  isReady: p.isReady || false,
-                  isHost: p.isHost || false,
-                })),
-              };
-
-              broadcast(room.id, updateMessage);
-            } catch (error) {
-              sendToClient(message.playerId, { type: 'error', message: 'Failed to submit word' });
-            }
-            break;
-          }
-
-          case 'skip_turn': {
-            try {
-              const room = await storage.getGameRoom(message.roomId);
-              if (!room) {
-                sendToClient(message.playerId, { type: 'error', message: 'Room not found' });
-                break;
-              }
-
-              const players = await storage.getPlayersByRoomId(room.id);
-              const currentPlayer = players[room.currentPlayerIndex ?? 0];
-
-              // Check if it's the player's turn
-              if (currentPlayer.id !== message.playerId) {
-                sendToClient(message.playerId, { type: 'error', message: 'Not your turn' });
-                break;
-              }
-
-              // Move to next player
-              const nextPlayerIndex = ((room.currentPlayerIndex ?? 0) + 1) % players.length;
-              await storage.updateGameRoom(room.id, {
-                currentPlayerIndex: nextPlayerIndex,
-              });
-
-              // Broadcast updated game state
-              const updateMessage: WSResponse = {
-                type: 'game_state_updated',
-                room: {
-                  id: room.id,
-                  code: room.code,
-                  currentWord: room.currentWord,
-                  wordChain: room.wordChain || [],
-                  currentPlayerIndex: nextPlayerIndex,
-                },
-                players: players.map(p => ({
-                  id: p.id,
-                  name: p.name,
-                  isReady: p.isReady || false,
-                  isHost: p.isHost || false,
-                })),
-              };
-
-              broadcast(room.id, updateMessage);
-            } catch (error) {
-              sendToClient(message.playerId, { type: 'error', message: 'Failed to skip turn' });
-            }
-            break;
-          }
-
-          case 'leave_room': {
-            try {
-              await storage.removePlayer(message.playerId);
-              clients.delete(message.playerId);
-
-              // Get remaining players and broadcast update
-              const remainingPlayers = await storage.getPlayersByRoomId(message.roomId);
-              const room = await storage.getGameRoom(message.roomId);
-
-              if (room && remainingPlayers.length > 0) {
-                // If current player left, advance to next player
-                let newCurrentPlayerIndex = room.currentPlayerIndex ?? 0;
-                if (newCurrentPlayerIndex >= remainingPlayers.length) {
-                  newCurrentPlayerIndex = 0;
-                }
-
-                await storage.updateGameRoom(room.id, {
-                  currentPlayerIndex: newCurrentPlayerIndex,
-                });
-
-                const updateMessage: WSResponse = {
-                  type: 'game_state_updated',
-                  room: {
-                    id: room.id,
-                    code: room.code,
-                    currentWord: room.currentWord,
-                    wordChain: room.wordChain || [],
-                    currentPlayerIndex: newCurrentPlayerIndex,
-                  },
-                  players: remainingPlayers.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    isReady: p.isReady ?? false,
-                    isHost: p.isHost ?? false,
-                  })),
-                };
-
-                broadcast(room.id, updateMessage);
-              }
-            } catch (error) {
-              console.error('Error handling leave room:', error);
-            }
-            break;
-          }
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-        ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
-      }
-    });
-
-    ws.on('close', () => {
-      if (ws.playerId) {
-        clients.delete(ws.playerId);
-        console.log(`Player ${ws.playerId} disconnected`);
-      }
-    });
   });
 
+  // Get user profile and latest analysis
+  app.get('/api/user/:id', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+      const analysis = await storage.getUserLatestAnalysis(userId);
+      
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.json({ user, analysis });
+    } catch (error) {
+      console.error('Get user error:', error);
+      res.status(500).json({ error: 'Failed to get user data' });
+    }
+  });
+
+  // Generate personalized routines
+  app.post('/api/routines/:userId', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const analysis = await storage.getUserLatestAnalysis(userId);
+      
+      if (!analysis) {
+        return res.status(404).json({ error: 'No skin analysis found' });
+      }
+
+      // Generate morning routine
+      const morningProducts = [
+        { name: 'Gentle Cleanser', purpose: 'Remove overnight impurities', order: 1 },
+        { name: 'Vitamin C Serum', purpose: 'Antioxidant protection', order: 2 },
+        { name: 'Moisturizer', purpose: 'Hydrate and protect skin', order: 3 },
+        { name: 'Sunscreen SPF 30+', purpose: 'UV protection', order: 4 }
+      ];
+
+      // Generate evening routine
+      const eveningProducts = [
+        { name: 'Gentle Cleanser', purpose: 'Remove daily impurities', order: 1 },
+        { name: 'Treatment Serum', purpose: 'Target specific concerns', order: 2 },
+        { name: 'Night Moisturizer', purpose: 'Deep overnight hydration', order: 3 }
+      ];
+
+      const morningRoutine = await storage.createRoutine({
+        userId,
+        analysisId: analysis.id,
+        routineType: 'morning',
+        products: morningProducts
+      });
+
+      const eveningRoutine = await storage.createRoutine({
+        userId,
+        analysisId: analysis.id,
+        routineType: 'evening',
+        products: eveningProducts
+      });
+
+      res.json({ morning: morningRoutine, evening: eveningRoutine });
+    } catch (error) {
+      console.error('Generate routines error:', error);
+      res.status(500).json({ error: 'Failed to generate routines' });
+    }
+  });
+
+  // Chat with AI advisor
+  app.post('/api/chat/:userId', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { message, imageUrl } = req.body;
+
+      // Save user message
+      await storage.createChatMessage({
+        userId,
+        message,
+        isUserMessage: true,
+        imageUrl
+      });
+
+      // Generate AI response (mock for now)
+      const aiResponse = generateAIResponse(message);
+      
+      // Save AI response
+      const aiMessage = await storage.createChatMessage({
+        userId,
+        message: aiResponse,
+        isUserMessage: false
+      });
+
+      res.json({ response: aiMessage });
+    } catch (error) {
+      console.error('Chat error:', error);
+      res.status(500).json({ error: 'Failed to process chat message' });
+    }
+  });
+
+  // Get chat history
+  app.get('/api/chat/:userId', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const messages = await storage.getChatHistory(userId);
+      res.json({ messages });
+    } catch (error) {
+      console.error('Get chat history error:', error);
+      res.status(500).json({ error: 'Failed to get chat history' });
+    }
+  });
+
+  // Skin diary entries
+  app.post('/api/diary/:userId', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { photoUrl, mood, condition, notes } = req.body;
+
+      const entry = await storage.createDiaryEntry({
+        userId,
+        photoUrl,
+        mood,
+        condition,
+        notes
+      });
+
+      res.json({ entry });
+    } catch (error) {
+      console.error('Create diary entry error:', error);
+      res.status(500).json({ error: 'Failed to create diary entry' });
+    }
+  });
+
+  // Get diary entries
+  app.get('/api/diary/:userId', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const entries = await storage.getDiaryEntries(userId);
+      res.json({ entries });
+    } catch (error) {
+      console.error('Get diary entries error:', error);
+      res.status(500).json({ error: 'Failed to get diary entries' });
+    }
+  });
+
+  // Reminders
+  app.post('/api/reminders/:userId', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { title, frequency } = req.body;
+
+      const reminder = await storage.createReminder({
+        userId,
+        title,
+        frequency,
+        isActive: true
+      });
+
+      res.json({ reminder });
+    } catch (error) {
+      console.error('Create reminder error:', error);
+      res.status(500).json({ error: 'Failed to create reminder' });
+    }
+  });
+
+  // Get user reminders
+  app.get('/api/reminders/:userId', async (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const reminders = await storage.getUserReminders(userId);
+      res.json({ reminders });
+    } catch (error) {
+      console.error('Get reminders error:', error);
+      res.status(500).json({ error: 'Failed to get reminders' });
+    }
+  });
+
+  const httpServer = createServer(app);
   return httpServer;
+}
+
+// Helper function to generate AI responses
+function generateAIResponse(userMessage: string): string {
+  const message = userMessage.toLowerCase();
+  
+  if (message.includes('acne') || message.includes('breakout')) {
+    return "For acne management, try applying ice to reduce inflammation. Use gentle, non-comedogenic products and avoid over-washing. Consider salicylic acid or benzoyl peroxide treatments.";
+  }
+  
+  if (message.includes('dry') || message.includes('hydrat')) {
+    return "For dry skin, focus on hydration with hyaluronic acid serums and rich moisturizers. Use lukewarm water when cleansing and apply moisturizer while skin is still damp.";
+  }
+  
+  if (message.includes('sensitive') || message.includes('irritat')) {
+    return "For sensitive skin, stick to fragrance-free, gentle products. Introduce new products gradually and always patch test first. Look for ingredients like ceramides and niacinamide.";
+  }
+  
+  if (message.includes('sun') || message.includes('spf')) {
+    return "Always use broad-spectrum SPF 30 or higher daily, even indoors. Reapply every 2 hours when outdoors. This is the most important anti-aging step you can take.";
+  }
+  
+  return "I'm here to help with your skincare concerns! Feel free to ask about specific ingredients, routines, or skin issues you're experiencing.";
 }

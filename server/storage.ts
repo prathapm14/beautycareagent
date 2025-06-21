@@ -1,104 +1,228 @@
-import { gameRooms, players, type GameRoom, type Player, type InsertGameRoom, type InsertPlayer } from "@shared/schema";
+import { 
+  users, skinAnalyses, routines, chatMessages, diaryEntries, reminders,
+  type User, type SkinAnalysis, type Routine, type ChatMessage, type DiaryEntry, type Reminder,
+  type InsertUser, type InsertSkinAnalysis, type InsertRoutine, type InsertChatMessage, 
+  type InsertDiaryEntry, type InsertReminder
+} from "@shared/schema";
 
 export interface IStorage {
-  // Game Room methods
-  createGameRoom(room: InsertGameRoom): Promise<GameRoom>;
-  getGameRoom(id: number): Promise<GameRoom | undefined>;
-  getGameRoomByCode(code: string): Promise<GameRoom | undefined>;
-  updateGameRoom(id: number, updates: Partial<GameRoom>): Promise<GameRoom | undefined>;
+  // User methods
+  createUser(user: InsertUser): Promise<User>;
+  getUser(id: number): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   
-  // Player methods
-  createPlayer(player: InsertPlayer): Promise<Player>;
-  getPlayer(id: number): Promise<Player | undefined>;
-  getPlayersByRoomId(roomId: number): Promise<Player[]>;
-  updatePlayer(id: number, updates: Partial<Player>): Promise<Player | undefined>;
-  removePlayer(id: number): Promise<void>;
+  // Skin analysis methods
+  createSkinAnalysis(analysis: InsertSkinAnalysis): Promise<SkinAnalysis>;
+  getSkinAnalysis(id: number): Promise<SkinAnalysis | undefined>;
+  getUserLatestAnalysis(userId: number): Promise<SkinAnalysis | undefined>;
+  
+  // Routine methods
+  createRoutine(routine: InsertRoutine): Promise<Routine>;
+  getRoutinesByUserId(userId: number): Promise<Routine[]>;
+  updateRoutine(id: number, updates: Partial<Routine>): Promise<Routine | undefined>;
+  
+  // Chat methods
+  createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
+  getChatHistory(userId: number, limit?: number): Promise<ChatMessage[]>;
+  
+  // Diary methods
+  createDiaryEntry(entry: InsertDiaryEntry): Promise<DiaryEntry>;
+  getDiaryEntries(userId: number): Promise<DiaryEntry[]>;
+  updateDiaryEntry(id: number, updates: Partial<DiaryEntry>): Promise<DiaryEntry | undefined>;
+  
+  // Reminder methods
+  createReminder(reminder: InsertReminder): Promise<Reminder>;
+  getUserReminders(userId: number): Promise<Reminder[]>;
+  updateReminder(id: number, updates: Partial<Reminder>): Promise<Reminder | undefined>;
 }
 
 export class MemStorage implements IStorage {
-  private gameRooms: Map<number, GameRoom>;
-  private players: Map<number, Player>;
-  private currentRoomId: number;
-  private currentPlayerId: number;
+  private users: Map<number, User>;
+  private skinAnalyses: Map<number, SkinAnalysis>;
+  private routines: Map<number, Routine>;
+  private chatMessages: Map<number, ChatMessage>;
+  private diaryEntries: Map<number, DiaryEntry>;
+  private reminders: Map<number, Reminder>;
+  private currentUserId: number;
+  private currentAnalysisId: number;
+  private currentRoutineId: number;
+  private currentMessageId: number;
+  private currentEntryId: number;
+  private currentReminderId: number;
 
   constructor() {
-    this.gameRooms = new Map();
-    this.players = new Map();
-    this.currentRoomId = 1;
-    this.currentPlayerId = 1;
+    this.users = new Map();
+    this.skinAnalyses = new Map();
+    this.routines = new Map();
+    this.chatMessages = new Map();
+    this.diaryEntries = new Map();
+    this.reminders = new Map();
+    this.currentUserId = 1;
+    this.currentAnalysisId = 1;
+    this.currentRoutineId = 1;
+    this.currentMessageId = 1;
+    this.currentEntryId = 1;
+    this.currentReminderId = 1;
   }
 
-  async createGameRoom(insertRoom: InsertGameRoom): Promise<GameRoom> {
-    const id = this.currentRoomId++;
-    const room: GameRoom = {
+  // User methods
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const id = this.currentUserId++;
+    const user: User = {
       id,
-      code: insertRoom.code,
-      currentWord: insertRoom.currentWord || null,
-      wordChain: insertRoom.wordChain || null,
-      currentPlayerIndex: insertRoom.currentPlayerIndex || null,
-      isActive: insertRoom.isActive || null,
+      email: insertUser.email || null,
+      name: insertUser.name,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.users.set(id, user);
+    return user;
+  }
+
+  async getUser(id: number): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(user => user.email === email);
+  }
+
+  // Skin analysis methods
+  async createSkinAnalysis(insertAnalysis: InsertSkinAnalysis): Promise<SkinAnalysis> {
+    const id = this.currentAnalysisId++;
+    const analysis: SkinAnalysis = {
+      id,
+      userId: insertAnalysis.userId,
+      skinType: insertAnalysis.skinType,
+      concerns: insertAnalysis.concerns || [],
+      allergies: insertAnalysis.allergies || [],
+      imageUrl: insertAnalysis.imageUrl || null,
+      aiDiagnosis: insertAnalysis.aiDiagnosis || null,
       createdAt: new Date(),
     };
-    this.gameRooms.set(id, room);
-    return room;
+    this.skinAnalyses.set(id, analysis);
+    return analysis;
   }
 
-  async getGameRoom(id: number): Promise<GameRoom | undefined> {
-    return this.gameRooms.get(id);
+  async getSkinAnalysis(id: number): Promise<SkinAnalysis | undefined> {
+    return this.skinAnalyses.get(id);
   }
 
-  async getGameRoomByCode(code: string): Promise<GameRoom | undefined> {
-    return Array.from(this.gameRooms.values()).find(room => room.code === code);
+  async getUserLatestAnalysis(userId: number): Promise<SkinAnalysis | undefined> {
+    const userAnalyses = Array.from(this.skinAnalyses.values())
+      .filter(analysis => analysis.userId === userId)
+      .sort((a, b) => b.createdAt!.getTime() - a.createdAt!.getTime());
+    return userAnalyses[0];
   }
 
-  async updateGameRoom(id: number, updates: Partial<GameRoom>): Promise<GameRoom | undefined> {
-    const room = this.gameRooms.get(id);
-    if (!room) return undefined;
-    
-    const updatedRoom = { ...room, ...updates };
-    this.gameRooms.set(id, updatedRoom);
-    return updatedRoom;
-  }
-
-  async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {
-    const id = this.currentPlayerId++;
-    const player: Player = {
+  // Routine methods
+  async createRoutine(insertRoutine: InsertRoutine): Promise<Routine> {
+    const id = this.currentRoutineId++;
+    const routine: Routine = {
       id,
-      name: insertPlayer.name,
-      roomId: insertPlayer.roomId || null,
-      isReady: insertPlayer.isReady || null,
-      isHost: insertPlayer.isHost || null,
-      joinedAt: new Date(),
+      userId: insertRoutine.userId,
+      analysisId: insertRoutine.analysisId,
+      routineType: insertRoutine.routineType,
+      products: insertRoutine.products,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
-    this.players.set(id, player);
-    return player;
+    this.routines.set(id, routine);
+    return routine;
   }
 
-  async getPlayer(id: number): Promise<Player | undefined> {
-    return this.players.get(id);
+  async getRoutinesByUserId(userId: number): Promise<Routine[]> {
+    return Array.from(this.routines.values()).filter(routine => routine.userId === userId);
   }
 
-  async getPlayersByRoomId(roomId: number): Promise<Player[]> {
-    return Array.from(this.players.values()).filter(player => player.roomId === roomId);
-  }
-
-  async updatePlayer(id: number, updates: Partial<Player>): Promise<Player | undefined> {
-    const player = this.players.get(id);
-    if (!player) return undefined;
+  async updateRoutine(id: number, updates: Partial<Routine>): Promise<Routine | undefined> {
+    const routine = this.routines.get(id);
+    if (!routine) return undefined;
     
-    const updatedPlayer = { ...player, ...updates };
-    this.players.set(id, updatedPlayer);
-    return updatedPlayer;
+    const updatedRoutine = { ...routine, ...updates, updatedAt: new Date() };
+    this.routines.set(id, updatedRoutine);
+    return updatedRoutine;
   }
 
-  async removePlayer(id: number): Promise<void> {
-    this.players.delete(id);
+  // Chat methods
+  async createChatMessage(insertMessage: InsertChatMessage): Promise<ChatMessage> {
+    const id = this.currentMessageId++;
+    const message: ChatMessage = {
+      id,
+      userId: insertMessage.userId,
+      message: insertMessage.message,
+      isUserMessage: insertMessage.isUserMessage,
+      imageUrl: insertMessage.imageUrl || null,
+      timestamp: new Date(),
+    };
+    this.chatMessages.set(id, message);
+    return message;
   }
 
-  // Helper method to generate unique room codes
-  generateRoomCode(): string {
-    const words = ['FAMILY', 'GARDEN', 'SUNSET', 'OCEAN', 'FOREST', 'MEADOW', 'BRIDGE', 'CASTLE', 'FLOWER', 'MAPLE'];
-    return words[Math.floor(Math.random() * words.length)];
+  async getChatHistory(userId: number, limit: number = 50): Promise<ChatMessage[]> {
+    return Array.from(this.chatMessages.values())
+      .filter(message => message.userId === userId)
+      .sort((a, b) => a.timestamp!.getTime() - b.timestamp!.getTime())
+      .slice(-limit);
+  }
+
+  // Diary methods
+  async createDiaryEntry(insertEntry: InsertDiaryEntry): Promise<DiaryEntry> {
+    const id = this.currentEntryId++;
+    const entry: DiaryEntry = {
+      id,
+      userId: insertEntry.userId,
+      photoUrl: insertEntry.photoUrl || null,
+      mood: insertEntry.mood || null,
+      condition: insertEntry.condition || null,
+      notes: insertEntry.notes || null,
+      date: new Date(),
+    };
+    this.diaryEntries.set(id, entry);
+    return entry;
+  }
+
+  async getDiaryEntries(userId: number): Promise<DiaryEntry[]> {
+    return Array.from(this.diaryEntries.values())
+      .filter(entry => entry.userId === userId)
+      .sort((a, b) => b.date!.getTime() - a.date!.getTime());
+  }
+
+  async updateDiaryEntry(id: number, updates: Partial<DiaryEntry>): Promise<DiaryEntry | undefined> {
+    const entry = this.diaryEntries.get(id);
+    if (!entry) return undefined;
+    
+    const updatedEntry = { ...entry, ...updates };
+    this.diaryEntries.set(id, updatedEntry);
+    return updatedEntry;
+  }
+
+  // Reminder methods
+  async createReminder(insertReminder: InsertReminder): Promise<Reminder> {
+    const id = this.currentReminderId++;
+    const reminder: Reminder = {
+      id,
+      userId: insertReminder.userId,
+      title: insertReminder.title,
+      frequency: insertReminder.frequency,
+      isActive: insertReminder.isActive ?? true,
+      createdAt: new Date(),
+    };
+    this.reminders.set(id, reminder);
+    return reminder;
+  }
+
+  async getUserReminders(userId: number): Promise<Reminder[]> {
+    return Array.from(this.reminders.values()).filter(reminder => reminder.userId === userId);
+  }
+
+  async updateReminder(id: number, updates: Partial<Reminder>): Promise<Reminder | undefined> {
+    const reminder = this.reminders.get(id);
+    if (!reminder) return undefined;
+    
+    const updatedReminder = { ...reminder, ...updates };
+    this.reminders.set(id, updatedReminder);
+    return updatedReminder;
   }
 }
 
