@@ -148,6 +148,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AI Chat endpoint for BeautyCare Assistant
+  app.post("/api/chat", async (req, res) => {
+    try {
+      const { message } = req.body;
+      
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Message is required" });
+      }
+
+      // Generate AI response based on message content
+      const response = generateBeautyAIResponse(message);
+      
+      res.json({ response });
+    } catch (error) {
+      console.error("Error processing chat message:", error);
+      res.status(500).json({ error: "Failed to process message" });
+    }
+  });
+
   // Get chat history
   app.get('/api/chat/:userId', async (req, res) => {
     try {
@@ -227,6 +246,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
   return httpServer;
+}
+
+function generateBeautyAIResponse(message: string): string {
+  const lowerMessage = message.toLowerCase();
+  
+  // Skincare advice
+  if (lowerMessage.includes('acne') || lowerMessage.includes('pimple') || lowerMessage.includes('breakout')) {
+    return "For acne-prone skin, I recommend using a gentle salicylic acid cleanser, followed by a lightweight, non-comedogenic moisturizer. Consider adding a retinol treatment at night, but start slowly. Always use sunscreen during the day as some acne treatments can increase sun sensitivity.";
+  }
+  
+  if (lowerMessage.includes('dry') || lowerMessage.includes('dehydrated')) {
+    return "Dry skin needs extra hydration! Use a gentle, cream-based cleanser and follow with a rich moisturizer containing hyaluronic acid or ceramides. Consider adding a hydrating serum and use a humidifier at night. Avoid over-cleansing and hot water, which can strip natural oils.";
+  }
+  
+  if (lowerMessage.includes('oily') || lowerMessage.includes('greasy')) {
+    return "Oily skin benefits from a foaming cleanser with salicylic acid to control excess oil. Use a lightweight, oil-free moisturizer - even oily skin needs hydration! Consider clay masks 1-2 times per week and always use a broad-spectrum sunscreen that's formulated for oily skin.";
+  }
+  
+  if (lowerMessage.includes('sensitive') || lowerMessage.includes('irritated')) {
+    return "Sensitive skin requires gentle, fragrance-free products. Look for cleansers with minimal ingredients, and moisturizers with soothing ingredients like aloe vera or chamomile. Always patch test new products and introduce them one at a time. Avoid alcohol-based products and strong actives.";
+  }
+  
+  if (lowerMessage.includes('aging') || lowerMessage.includes('wrinkle') || lowerMessage.includes('anti-aging')) {
+    return "For anti-aging care, focus on prevention and treatment. Use a vitamin C serum in the morning for antioxidant protection, and consider retinol at night to boost cell turnover. Hyaluronic acid helps plump fine lines, and peptides can support collagen production. Never skip sunscreen - it's the most important anti-aging step!";
+  }
+  
+  if (lowerMessage.includes('routine') || lowerMessage.includes('order') || lowerMessage.includes('steps')) {
+    return "A basic skincare routine should follow this order: Morning - cleanser, vitamin C serum, moisturizer, sunscreen. Evening - cleanser, treatment serums (like retinol), moisturizer. Start with the basics and add products gradually. Always introduce new products one at a time to monitor your skin's reaction.";
+  }
+  
+  if (lowerMessage.includes('sunscreen') || lowerMessage.includes('spf')) {
+    return "Sunscreen is crucial for all skin types! Use broad-spectrum SPF 30 or higher daily, even indoors. Reapply every 2 hours when outdoors. For daily wear, chemical sunscreens blend well under makeup, while mineral sunscreens are gentler for sensitive skin. Don't forget your neck and hands!";
+  }
+  
+  if (lowerMessage.includes('product') || lowerMessage.includes('recommend')) {
+    return "I'd love to recommend products tailored to your needs! Could you tell me more about your skin type (oily, dry, combination, sensitive) and any specific concerns you're addressing? This will help me suggest the most suitable products for your routine.";
+  }
+  
+  // General beauty advice
+  if (lowerMessage.includes('makeup') || lowerMessage.includes('cosmetic')) {
+    return "For healthy makeup application, always start with clean, moisturized skin. Use a primer to create a smooth base and help makeup last longer. Remove all makeup thoroughly before bed to prevent clogged pores. Consider makeup-free days to let your skin breathe!";
+  }
+  
+  // Default response
+  return "Thank you for your question! I'm here to help with all your beauty and skincare needs. Whether you're looking for product recommendations, routine advice, or solutions to specific skin concerns, I'm ready to assist. What specific aspect of your skincare routine would you like to discuss?";
 }
 
 // Helper function to generate AI responses

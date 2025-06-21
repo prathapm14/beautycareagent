@@ -122,6 +122,23 @@
     @apply bg-secondary text-secondary-foreground hover:opacity-90 active:opacity-80 touch-target font-medium rounded-lg transition-all duration-200;
   }
 
+  /* Chat interface styles */
+  .chat-message {
+    @apply transform transition-all duration-200 hover:scale-[1.02];
+  }
+
+  .chat-input-panel {
+    @apply bg-white/90 dark:bg-gray-900/90 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700;
+  }
+
+  .voice-indicator {
+    @apply animate-pulse bg-red-500 text-white;
+  }
+
+  .attachment-preview {
+    @apply bg-gray-100 dark:bg-gray-800 rounded-lg p-2 flex items-center space-x-2;
+  }
+
   .text-xs { font-size: 0.75rem; }
   .text-sm { font-size: 0.875rem; }
   .text-base { font-size: 1rem; }
